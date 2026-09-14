@@ -143,11 +143,9 @@ if [ -f "$HOME/.gitconfig" ]; then
   args+=(--volume "$HOME/.gitconfig:/home/deployer/.gitconfig:ro${Z:+,$Z}")
 fi
 
-# Preferred: `vars resolve --partial --dotenv`, matching the manual checklist.
-# Fallback: forward a predefined list of the vars a deployment ceremony needs.
-if command -v vars >/dev/null 2>&1; then
-  args+=(--env-file <(vars resolve --partial --dotenv 2>/dev/null))
-else
+# Fallback path: forward a predefined list of the vars a deployment needs.
+# The `vars` path is handled below, on the podman command line itself.
+if ! command -v vars >/dev/null 2>&1; then
   for var in DEPLOYER_KEY ETHERSCAN_API_KEY TERM COLORTERM; do
     if [ -n "${!var-}" ]; then args+=(--env "$var=${!var}"); fi
   done
@@ -158,4 +156,13 @@ if [ -n "${PDEPLOY_ARGS:-}" ]; then
   args+=("${userargs[@]}")
 fi
 
-exec podman run "${args[@]}" "$IMAGE" ${extra[@]+"${extra[@]}"}
+# The <(vars ...) process substitution has to sit on the same simple command
+# as `podman run`: bash closes process-sub fds when the command that
+# contained them finishes, so stashing --env-file <(...) into the args array
+# earlier would leave podman pointing at a closed /dev/fd/N.
+if command -v vars >/dev/null 2>&1; then
+  podman run --env-file <(vars resolve --partial --dotenv 2>/dev/null) \
+    "${args[@]}" "$IMAGE" ${extra[@]+"${extra[@]}"}
+else
+  podman run "${args[@]}" "$IMAGE" ${extra[@]+"${extra[@]}"}
+fi
