@@ -55,10 +55,11 @@ Environment:
   PDEPLOY_ARGS           Extra podman run args   (e.g. "-v /data:/data:z -e FOO=bar")
   PDEPLOY_RELABEL        SELinux mount label: auto (default), z, Z or off
   PDEPLOY_ALLOW_HOME     Set to 1 to allow running with $PWD == $HOME
+  PDEPLOY_VARS_PROFILE   Profile passed to `vars resolve` (adds --profile <v>)
 
 Env-var injection into the container:
   If `vars` is on your host PATH, pdeploy runs
-    vars resolve --partial --dotenv
+    vars resolve --partial --dotenv [--profile $PDEPLOY_VARS_PROFILE]
   and passes the result as --env-file. Otherwise, a predefined list is
   forwarded from your shell (any of these that are set):
     DEPLOYER_KEY ETHERSCAN_API_KEY TERM COLORTERM
@@ -156,12 +157,24 @@ if [ -n "${PDEPLOY_ARGS:-}" ]; then
   args+=("${userargs[@]}")
 fi
 
+# `vars` has profile support; without a profile, resolving picks the default
+# and misses per-target secrets (e.g. a sepolia-specific DEPLOYER_KEY). Which
+# profile matters is entirely a `vars`-side concept — pdeploy just forwards
+# whatever string the user hands it via PDEPLOY_VARS_PROFILE.
+resolve_vars() {
+  if [ -n "${PDEPLOY_VARS_PROFILE:-}" ]; then
+    vars resolve --partial --dotenv --profile "$PDEPLOY_VARS_PROFILE" 2>/dev/null
+  else
+    vars resolve --partial --dotenv 2>/dev/null
+  fi
+}
+
 # The <(vars ...) process substitution has to sit on the same simple command
 # as `podman run`: bash closes process-sub fds when the command that
 # contained them finishes, so stashing --env-file <(...) into the args array
 # earlier would leave podman pointing at a closed /dev/fd/N.
 if command -v vars >/dev/null 2>&1; then
-  podman run --env-file <(vars resolve --partial --dotenv 2>/dev/null) \
+  podman run --env-file <(resolve_vars) \
     "${args[@]}" "$IMAGE" ${extra[@]+"${extra[@]}"}
 else
   podman run "${args[@]}" "$IMAGE" ${extra[@]+"${extra[@]}"}

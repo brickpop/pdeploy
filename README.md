@@ -123,7 +123,9 @@ container. `pdeploy` picks one of two strategies at run time:
    ```
    is invoked and its output passed to Podman as `--env-file`. This matches the
    manual `--env-file <(vars resolve --partial --dotenv 2>/dev/null)` step in
-   the checklist.
+   the checklist. If `PDEPLOY_VARS_PROFILE` is set, `--profile $PDEPLOY_VARS_PROFILE`
+   is appended so per-profile secrets (e.g. a `sepolia`-specific `DEPLOYER_KEY`)
+   are picked up.
 2. **Otherwise:** these variables are forwarded from your shell, if set:
    `DEPLOYER_KEY`, `ETHERSCAN_API_KEY`, `TERM`, `COLORTERM`.
 
@@ -181,6 +183,7 @@ To undo the relabelling of a directory later: `restorecon -R <dir>`.
 | `PDEPLOY_ARGS` | — | extra `podman run` args |
 | `PDEPLOY_RELABEL` | `auto` | `z`, `Z` or `off` |
 | `PDEPLOY_ALLOW_HOME` | — | `1` allows running in `$HOME` |
+| `PDEPLOY_VARS_PROFILE` | — | profile forwarded to `vars resolve` as `--profile <value>` |
 | `PDEPLOY_RAW_BASE` | `https://raw.githubusercontent.com/brickpop/pdeploy/main` | where `install.sh` fetches files from when run via `curl \| bash` |
 
 ## Uninstall
