@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# pdeploy — run a deployment shell inside a Podman container, scoped to the
+# current directory. Two images are supported: standard EVM (default) and
+# zksync (--zksync). Everything after the reserved subcommand is passed to the
+# container as-is; with no extra args you get an interactive bash shell.
+set -euo pipefail
+
+SHARE="${PDEPLOY_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/pdeploy}"
+VARIANT="standard"
+CMD="run"
+
+die() { printf 'pdeploy: %s\n' "$*" >&2; exit 1; }
+
+# On macOS/Windows, podman needs a running Linux VM. If we can already reach
+# one, do nothing. If a machine exists but is stopped, start it. If none
+# exists at all, refuse — creating one is a resource decision that shouldn't
+# be silent.
+ensure_podman_ready() {
+  command -v podman >/dev/null || die "podman is not installed"
+  case "$(uname -s)" in Darwin|MINGW*|MSYS*|CYGWIN*) ;; *) return 0 ;; esac
+  podman info >/dev/null 2>&1 && return 0
+  if [ -z "$(podman machine list --format '{{.Name}}' 2>/dev/null || true)" ]; then
+    die "no podman machine exists — run 'podman machine init && podman machine start'"
+  fi
+  echo "pdeploy: podman machine is stopped, starting it..." >&2
+  podman machine start || die "failed to start podman machine"
+}
+
+usage() {
+  cat <<'EOF'
+Usage: pdeploy [--zksync] [SUBCOMMAND] [args...]
+
+Subcommands:
+  (none)      Interactive shell in the current directory (default)
+  build       Build the image
+  update      Rebuild from scratch (--pull --no-cache)
+  help        This message
+
+Flags:
+  --zksync    Use the zksync image (localhost/pdeploy-zksync)
+  --help      This message
+
+Examples:
+  pdeploy                       # shell in localhost/pdeploy
+  pdeploy --zksync              # shell in localhost/pdeploy-zksync
+  pdeploy build                 # build localhost/pdeploy
+  pdeploy build --zksync        # build localhost/pdeploy-zksync
+  pdeploy just test             # run `just test` in the standard image
+  pdeploy --zksync just deploy  # run `just deploy` in the zksync image
+
+Environment:
+  PDEPLOY_IMAGE          Standard image name     (default: localhost/pdeploy)
+  PDEPLOY_IMAGE_ZKSYNC   zksync image name       (default: localhost/pdeploy-zksync)
+  PDEPLOY_HOME           Dir holding Dockerfiles (default: ~/.local/share/pdeploy)
+  PDEPLOY_ARGS           Extra podman run args   (e.g. "-v /data:/data:z -e FOO=bar")
+  PDEPLOY_RELABEL        SELinux mount label: auto (default), z, Z or off
+  PDEPLOY_ALLOW_HOME     Set to 1 to allow running with $PWD == $HOME
+
+Env-var injection into the container:
+  If `vars` is on your host PATH, pdeploy runs
+    vars resolve --partial --dotenv
+  and passes the result as --env-file. Otherwise, a predefined list is
+  forwarded from your shell (any of these that are set):
+    DEPLOYER_KEY ETHERSCAN_API_KEY TERM COLORTERM
+EOF
+}
+
+# Parse: --zksync anywhere, then optionally a reserved subcommand, then
+# everything else is passthrough (to `podman build` for build/update, or to
+# the container for run).
+extra=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --zksync)      VARIANT="zksync"; shift ;;
+    --help|-h|help) usage; exit 0 ;;
+    build|update)  CMD="$1"; shift ;;
+    --)            shift; extra+=("$@"); break ;;
+    *)             extra+=("$1"); shift ;;
+  esac
+done
+
+case "$VARIANT" in
+  standard)
+    IMAGE="${PDEPLOY_IMAGE:-localhost/pdeploy}"
+    DOCKERFILE="Dockerfile"
+    ;;
+  zksync)
+    IMAGE="${PDEPLOY_IMAGE_ZKSYNC:-localhost/pdeploy-zksync}"
+    DOCKERFILE="Dockerfile.zksync"
+    ;;
+esac
+
+build_image() {
+  [ -f "$SHARE/$DOCKERFILE" ] || die "no $DOCKERFILE in $SHARE — re-run install.sh from the repo"
+  podman build -t "$IMAGE" -f "$SHARE/$DOCKERFILE" "$@" "$SHARE"
+}
+
+ensure_podman_ready
+
+# ${extra[@]+"${extra[@]}"} safely expands an empty array under `set -u` on
+# macOS's stock bash 3.2 — plain "${extra[@]}" would abort as "unbound".
+case "$CMD" in
+  build)  build_image ${extra[@]+"${extra[@]}"}; exit 0 ;;
+  update) build_image --pull --no-cache ${extra[@]+"${extra[@]}"}; exit 0 ;;
+esac
+
+if ! podman image exists "$IMAGE"; then
+  echo "pdeploy: image $IMAGE not found, building it once..." >&2
+  build_image
+fi
+
+# Guard against exposing an entire home directory by accident.
+case "$PWD" in
+  /) die "refusing to run in /" ;;
+  "$HOME") [ "${PDEPLOY_ALLOW_HOME:-}" = 1 ] || die "refusing to mount all of \$HOME (set PDEPLOY_ALLOW_HOME=1 to override)" ;;
+esac
+
+# SELinux hosts (Fedora, RHEL...) need a relabel suffix on bind mounts:
+#   PDEPLOY_RELABEL=z    shared label, safe for concurrent sessions
+#   PDEPLOY_RELABEL=Z    private label, stricter, one session at a time
+#   PDEPLOY_RELABEL=off  plain bind mounts
+relabel="${PDEPLOY_RELABEL:-auto}"
+if [ "$relabel" = auto ]; then
+  if [ -f /sys/fs/selinux/enforce ]; then relabel=z; else relabel=off; fi
+fi
+case "$relabel" in
+  z|Z) Z="$relabel" ;;
+  off) Z="" ;;
+  *)   die "PDEPLOY_RELABEL must be z, Z, off or auto" ;;
+esac
+
+# Mirror the host path inside the container, so `just` and any tools that key
+# state off the working directory behave the same way inside and out.
+args=(
+  --rm --interactive --tty
+  --hostname pdeploy
+  --userns "keep-id:uid=1000,gid=1000"
+  --volume "$PWD:$PWD${Z:+:$Z}"
+  --workdir "$PWD"
+)
+
+if [ -f "$HOME/.gitconfig" ]; then
+  args+=(--volume "$HOME/.gitconfig:/home/deployer/.gitconfig:ro${Z:+,$Z}")
+fi
+
+# Preferred: `vars resolve --partial --dotenv`, matching the manual checklist.
+# Fallback: forward a predefined list of the vars a deployment ceremony needs.
+if command -v vars >/dev/null 2>&1; then
+  args+=(--env-file <(vars resolve --partial --dotenv 2>/dev/null))
+else
+  for var in DEPLOYER_KEY ETHERSCAN_API_KEY TERM COLORTERM; do
+    if [ -n "${!var-}" ]; then args+=(--env "$var=${!var}"); fi
+  done
+fi
+
+if [ -n "${PDEPLOY_ARGS:-}" ]; then
+  read -r -a userargs <<<"$PDEPLOY_ARGS"
+  args+=("${userargs[@]}")
+fi
+
+exec podman run "${args[@]}" "$IMAGE" ${extra[@]+"${extra[@]}"}

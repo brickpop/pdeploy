@@ -1,0 +1,36 @@
+FROM docker.io/library/debian:trixie-slim
+
+# The tools listed in the manual deployment checklist, baked in once.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      git \
+      just \
+      vim \
+      bc \
+      jq \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -g 1000 deployer \
+  && useradd -m -u 1000 -g 1000 -s /bin/bash deployer
+
+USER deployer
+ENV HOME=/home/deployer
+WORKDIR /home/deployer
+
+# foundry-zksync provides its own forge/cast/anvil/chisel that target zkSync.
+# Pin with --build-arg FOUNDRY_ZKSYNC_VERSION=<tag> if you need a specific release.
+ARG FOUNDRY_ZKSYNC_VERSION=
+RUN curl -fsSL https://raw.githubusercontent.com/matter-labs/foundry-zksync/main/install-foundry-zksync | bash \
+  && if [ -n "${FOUNDRY_ZKSYNC_VERSION}" ]; then \
+       /home/deployer/.foundry/bin/foundryup-zksync --version "${FOUNDRY_ZKSYNC_VERSION}"; \
+     else \
+       /home/deployer/.foundry/bin/foundryup-zksync; \
+     fi
+
+ENV PATH=/home/deployer/.foundry/bin:$PATH
+
+RUN forge --version && cast --version && anvil --version && just --version
+
+ENTRYPOINT []
+CMD ["bash"]
