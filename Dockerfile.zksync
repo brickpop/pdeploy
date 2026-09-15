@@ -30,6 +30,8 @@ RUN curl -fsSL https://raw.githubusercontent.com/matter-labs/foundry-zksync/main
 
 ENV PATH=/home/deployer/.foundry/bin:$PATH
 
+RUN echo 'PS1="\[\e[35m\]\u@\h\[\e[0m\]:\W\$ "' >> /home/deployer/.bashrc
+
 RUN forge --version && cast --version && anvil --version && just --version
 
 ENTRYPOINT []

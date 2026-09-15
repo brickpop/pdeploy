@@ -18,7 +18,7 @@ USER deployer
 ENV HOME=/home/deployer
 WORKDIR /home/deployer
 
-ARG FOUNDRY_VERSION=stable
+ARG FOUNDRY_VERSION=1.7.1
 # Foundry (forge, cast, anvil, chisel). foundryup keeps a second copy of every
 # binary under versions/; hardlinking them saves ~200 MB.
 RUN curl -fsSL https://foundry.paradigm.xyz | bash \
@@ -28,6 +28,8 @@ RUN curl -fsSL https://foundry.paradigm.xyz | bash \
      done
 
 ENV PATH=/home/deployer/.foundry/bin:$PATH
+
+RUN echo 'PS1="\[\e[36m\]\u@\h\[\e[0m\]:\W\$ "' >> /home/deployer/.bashrc
 
 RUN forge --version && cast --version && anvil --version && just --version
 
