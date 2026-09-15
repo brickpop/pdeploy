@@ -144,6 +144,11 @@ if [ -f "$HOME/.gitconfig" ]; then
   args+=(--volume "$HOME/.gitconfig:/home/deployer/.gitconfig:ro${Z:+,$Z}")
 fi
 
+# Optional auto-detection if just-foundry is used
+if [ -z "${PDEPLOY_VARS_PROFILE:-}" ] && [ -L lib/just-foundry/.env ]; then
+  PDEPLOY_VARS_PROFILE="$(basename "$(readlink lib/just-foundry/.env)" .env)"
+fi
+
 # Fallback path: forward a predefined list of the vars a deployment needs.
 # The `vars` path is handled below, on the podman command line itself.
 if ! command -v vars >/dev/null 2>&1; then
@@ -157,10 +162,7 @@ if [ -n "${PDEPLOY_ARGS:-}" ]; then
   args+=("${userargs[@]}")
 fi
 
-# `vars` has profile support; without a profile, resolving picks the default
-# and misses per-target secrets (e.g. a sepolia-specific DEPLOYER_KEY). Which
-# profile matters is entirely a `vars`-side concept — pdeploy just forwards
-# whatever string the user hands it via PDEPLOY_VARS_PROFILE.
+# Optional: `vars` has profile support: using based on PDEPLOY_VARS_PROFILE.
 resolve_vars() {
   if [ -n "${PDEPLOY_VARS_PROFILE:-}" ]; then
     vars resolve --partial --dotenv --profile "$PDEPLOY_VARS_PROFILE" 2>/dev/null

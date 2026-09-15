@@ -126,6 +126,9 @@ container. `pdeploy` picks one of two strategies at run time:
    the checklist. If `PDEPLOY_VARS_PROFILE` is set, `--profile $PDEPLOY_VARS_PROFILE`
    is appended so per-profile secrets (e.g. a `sepolia`-specific `DEPLOYER_KEY`)
    are picked up.
+
+   When `PDEPLOY_VARS_PROFILE` is *not* set, pdeploy will auto-fill it from
+   `lib/just-foundry/.env`. Projects without that layout are unaffected.
 2. **Otherwise:** these variables are forwarded from your shell, if set:
    `DEPLOYER_KEY`, `ETHERSCAN_API_KEY`, `TERM`, `COLORTERM`.
 
