@@ -18,21 +18,29 @@ USER deployer
 ENV HOME=/home/deployer
 WORKDIR /home/deployer
 
-# foundry-zksync provides its own forge/cast/anvil/chisel that target zkSync.
-# Pin with --build-arg FOUNDRY_ZKSYNC_VERSION=<tag> if you need a specific release.
+# Install foundry-zksync first: it drops forge/cast/anvil-zksync/chisel into
+# ~/.foundry/bin. Rename its forge/cast so the standard Foundry install below
+# owns the unsuffixed names; anvil-zksync is already suffixed and stays put.
 ARG FOUNDRY_ZKSYNC_VERSION=
+ARG FOUNDRY_VERSION=1.7.1
 RUN curl -fsSL https://raw.githubusercontent.com/matter-labs/foundry-zksync/main/install-foundry-zksync | bash \
   && if [ -n "${FOUNDRY_ZKSYNC_VERSION}" ]; then \
        /home/deployer/.foundry/bin/foundryup-zksync --version "${FOUNDRY_ZKSYNC_VERSION}"; \
      else \
        /home/deployer/.foundry/bin/foundryup-zksync; \
-     fi
+     fi \
+  && mv /home/deployer/.foundry/bin/forge /home/deployer/.foundry/bin/forge-zksync \
+  && mv /home/deployer/.foundry/bin/cast  /home/deployer/.foundry/bin/cast-zksync \
+  && curl -fsSL https://foundry.paradigm.xyz | bash \
+  && /home/deployer/.foundry/bin/foundryup --install ${FOUNDRY_VERSION}
 
 ENV PATH=/home/deployer/.foundry/bin:$PATH
 
 RUN echo 'PS1="\[\e[35m\]\u@\h\[\e[0m\]:\W\$ "' >> /home/deployer/.bashrc
 
-RUN forge --version && cast --version && anvil --version && just --version
+RUN forge --version && cast --version \
+ && forge-zksync --version && cast-zksync --version \
+ && anvil-zksync --version && just --version
 
 ENTRYPOINT []
 CMD ["bash"]

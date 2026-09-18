@@ -150,7 +150,7 @@ Both images are based on `debian:trixie-slim` and add the checklist's tools:
 | Image | Foundry |
 |---|---|
 | `localhost/pdeploy` | standard Foundry — `forge`, `cast`, `anvil`, `chisel` |
-| `localhost/pdeploy-zksync` | `foundry-zksync` — the zkSync-aware versions of the same four binaries |
+| `localhost/pdeploy-zksync` | standard Foundry **plus** `foundry-zksync` — `forge-zksync`, `cast-zksync`, `anvil-zksync` alongside the standard binaries |
 
 Pin a specific version at build time:
 
